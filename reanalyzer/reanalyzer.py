@@ -28,6 +28,7 @@ column_maps = {
         'SOLD DATE': 'sold_date',
         'SALE TYPE': 'sale_type',
         'PRICE': 'price',
+        'HOA/MONTH' : 'hoa',
         'SQUARE FEET': 'sq_feet',
         'BEDS': 'beds',
         'LATITUDE': 'latitude',
@@ -44,10 +45,12 @@ cursor.execute(sql_query, )
 
 
 def insert_property(property_data, import_date, last_status, last_price):
-    #print('DEBUG: Insert', property_data['address'], property_data['zip'], property_data['status'])
+    print('DEBUG: Insert', property_data['address'], property_data['zip'],
+          property_data['status'], last_status, last_price)
     db_updated = False
     days_on_market = int(property_data['days_on_market'])
     cur_price = int(property_data['price'])
+    hoa = 0 if property_data['hoa'] == '' else int(property_data['hoa'])
     list_date = import_date.date() - timedelta(days=days_on_market)
     baths = 0 if property_data['baths'] == '' else property_data['baths']
     lot = 0 if property_data['lot'] == '' else property_data['lot']
@@ -56,17 +59,23 @@ def insert_property(property_data, import_date, last_status, last_price):
 
     # New property or property first seen
     sql_query = """INSERT INTO properties (
-                       address, zip, price, beds, baths, sq_feet, lot, date, 
+                       address, zip, price, hoa, beds, baths, sq_feet, lot, date, 
                        status, latitude, longitude, property_type)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
 
     if last_status is None:
         new_status = 'Active'
-        new_date = list_date
+        if property_data['status'] == 'Sold':
+            # past sale imported for the first time. make list date one day earlier
+            # so that sale date is always more recent
+            new_date = list_date - timedelta(days=1)
+        else:
+            new_date = list_date
+
         print('INFO: add {} {} {}'.format(
             property_data['address'], property_data['status'], property_data['price']))
         sql_data = (property_data['address'], property_data['zip'],
-                    cur_price, beds, baths, sq_feet, lot,
+                    cur_price, hoa, beds, baths, sq_feet, lot,
                     new_date, new_status, property_data['latitude'],
                     property_data['longitude'], property_data['property_type'])
         cursor.execute(sql_query, sql_data)
@@ -88,7 +97,7 @@ def insert_property(property_data, import_date, last_status, last_price):
             new_date = import_date
 
         sql_data = (property_data['address'], property_data['zip'],
-                    cur_price, beds, baths, sq_feet, lot,
+                    cur_price, hoa, beds, baths, sq_feet, lot,
                     new_date, property_data['status'], property_data['latitude'],
                     property_data['longitude'], property_data['property_type'])
         cursor.execute(sql_query, sql_data)
@@ -96,6 +105,9 @@ def insert_property(property_data, import_date, last_status, last_price):
 
     if db_updated is False:
         print('INFO: Not updated:', property_data['address'])
+        return 0
+    else:
+        return 1
 
 
 def map_property_data(property_data_in, column_map):
@@ -116,7 +128,10 @@ def import_redfin_data(file, file_date=None):
 
     with open(file) as csvfile:
         reader = csv.DictReader(csvfile)
+        total_cnt = 0
+        update_cnt = 0
         for i,row in enumerate(reader):
+            total_cnt += 1
             property_data = map_property_data(row, column_maps['redfin'])
             if property_data['status'] == '':
                 print('WARNING: Skip row {}: {}: Unknown status'.format(
@@ -148,9 +163,11 @@ def import_redfin_data(file, file_date=None):
                 last_status = None
                 last_price = None
 
-            insert_property(property_data, file_date, last_status, last_price)
-
+            update_cnt += insert_property(property_data, file_date, last_status,
+                                          last_price)
     cnx.commit()
+
+    print('INFO: total properties in file: {}, updated: {}'.format(total_cnt, update_cnt))
 
 
 def import_data(file, source='redfin'):

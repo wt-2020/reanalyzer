@@ -35,8 +35,7 @@ def create_databases():
                      lot int,
                      date date,
                      price int,
-                     type varchar(40),
-                     hoa float,
+                     hoa int,
                      latitude float,
                      longitude float,
                      PRIMARY KEY (id))""".format(table_name)
